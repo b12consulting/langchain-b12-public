@@ -1,0 +1,17 @@
+[project]
+name = "langchain-b12"
+version = "0.1.0"
+description = "A reusable collection of tools and implementations for Langchain"
+readme = "README.md"
+authors = [
+    { name = "Juli Dema", email = "juli.dema@b12-consulting.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=1.16.1",
+    "langchain-core>=0.3.60",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
