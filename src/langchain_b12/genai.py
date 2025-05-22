@@ -207,7 +207,7 @@ class ChatGenAI(BaseChatModel):
     @classmethod
     def get_lc_namespace(cls) -> list[str]:
         """Get the namespace of the langchain object."""
-        return ["idmc_chatbot", "langchain_genai"]
+        return ["langchain_b12", "genai"]
 
     def _get_ls_params(
         self, stop: list[str] | None = None, **kwargs: Any
