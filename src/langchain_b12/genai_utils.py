@@ -137,26 +137,27 @@ def convert_messages_to_contents(
                 )
             )
         elif isinstance(message, ToolMessage):
-            # Google's documentation is seemingly incorrect about the content role
-            # only being allowed as "model" or "user". It can be "function" as well.
-            # We tried combining function_call and function_response into one part, but
+            # Note: We tried combining function_call and function_response into one part, but
             # that throws a 4xx server error.
             assert isinstance(message.content, str), "Expected str content"
             assert message.name, "Tool name is required"
-            contents.append(
-                types.Content(
-                    role="function",
-                    parts=[
-                        types.Part(
-                            function_response=types.FunctionResponse(
-                                id=message.tool_call_id,
-                                name=message.name,
-                                response={"output": message.content},
-                            ),
-                        )
-                    ],
-                )
+            tool_part = types.Part(
+                function_response=types.FunctionResponse(
+                    id=message.tool_call_id,
+                    name=message.name,
+                    response={"output": message.content},
+                ),
             )
+
+            # Ensure that all function_responses are in a single content
+            last_content = contents[-1]
+            last_content_part = last_content.parts[-1]
+            if last_content_part.function_response:
+                # Merge with the last content
+                last_content.parts.append(tool_part)
+            else:
+                # Create a new content
+                contents.append(types.UserContent(parts=[tool_part]))
         else:
             raise ValueError(f"Invalid message type: {type(message)}")
 
