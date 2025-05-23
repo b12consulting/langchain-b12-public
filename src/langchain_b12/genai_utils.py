@@ -10,6 +10,7 @@ from langchain_core.messages import (
     AIMessageChunk,
     BaseMessage,
     HumanMessage,
+    SystemMessage,
     ToolMessage,
 )
 from langchain_core.messages.tool import tool_call_chunk
@@ -158,6 +159,9 @@ def convert_messages_to_contents(
             else:
                 # Create a new content
                 contents.append(types.UserContent(parts=[tool_part]))
+        elif isinstance(message, SystemMessage):
+            # There is no genai.types equivalent for SystemMessage
+            pass
         else:
             raise ValueError(f"Invalid message type: {type(message)}")
 
