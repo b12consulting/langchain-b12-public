@@ -51,3 +51,8 @@ ignore = [
 reportUnknownParameterType = false
 reportUnknownMemberType = false
 reportUnknownArgumentType = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
