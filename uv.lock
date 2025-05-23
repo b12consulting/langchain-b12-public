@@ -262,7 +262,6 @@ name = "langchain-b12"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "google-genai" },
     { name = "langchain-core" },
 ]
 
@@ -270,15 +269,16 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
+google = [
+    { name = "google-genai" },
+]
 
 [package.metadata]
-requires-dist = [
-    { name = "google-genai", specifier = ">=1.16.1" },
-    { name = "langchain-core", specifier = ">=0.3.60" },
-]
+requires-dist = [{ name = "langchain-core", specifier = ">=0.3.60" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.3.5" }]
+google = [{ name = "google-genai", specifier = ">=1.16.1" }]
 
 [[package]]
 name = "langchain-core"
