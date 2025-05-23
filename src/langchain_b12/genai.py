@@ -1,7 +1,5 @@
-import json
 import logging
 import os
-import uuid
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from operator import itemgetter
 from typing import Any, Literal, cast
@@ -20,14 +18,12 @@ from langchain_core.language_models.chat_models import (
     generate_from_stream,
 )
 from langchain_core.messages import (
-    AIMessage,
     AIMessageChunk,
     BaseMessage,
     HumanMessage,
     SystemMessage,
 )
 from langchain_core.messages.ai import UsageMetadata
-from langchain_core.messages.tool import tool_call_chunk
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.output_parsers.base import OutputParserLike
 from langchain_core.output_parsers.openai_tools import (
@@ -41,93 +37,12 @@ from langchain_core.utils.function_calling import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
+from langchain_b12.genai_utils import (
+    convert_messages_to_contents,
+    parse_response_candidate,
+)
+
 logger = logging.getLogger(__name__)
-
-
-def convert_messages_to_contents(
-    messages: Sequence[BaseMessage],
-) -> list[types.Content]:
-    """Convert a sequence of LangChain messages to Google GenAI Content objects.
-
-    Args:
-        messages: A sequence of LangChain BaseMessage objects
-
-    Returns:
-        A list of Google GenAI Content objects
-    """
-    contents = []
-
-    for message in messages:
-        if isinstance(message, HumanMessage) and message.content:
-            # Human messages become user type content
-            contents.append(
-                types.Content(
-                    role="user",
-                    parts=[types.Part(text=str(message.content))],
-                )
-            )
-        elif isinstance(message, AIMessage) and message.content:
-            # AI messages become model type content
-            contents.append(
-                types.Content(
-                    role="model",
-                    parts=[types.Part(text=str(message.content))],
-                )
-            )
-            ##TODO: Add support for function call
-
-    return contents
-
-
-def _parse_response_candidate(response_candidate: types.Candidate) -> AIMessageChunk:
-    content: None | str | list[str] = None
-    additional_kwargs = {}
-    tool_call_chunks = []
-
-    assert response_candidate.content, "Response candidate content is None"
-    for part in response_candidate.content.parts or []:
-        try:
-            text: str | None = part.text
-        except AttributeError:
-            text = None
-
-        if text:
-            if not content:
-                content = text
-            elif isinstance(content, str):
-                content = [content, text]
-            elif isinstance(content, list):
-                content.append(text)
-            else:
-                raise ValueError("Unexpected content type")
-
-        if part.function_call:
-            # For backward compatibility we store a function call in additional_kwargs,
-            # but in general the full set of function calls is stored in tool_calls.
-            function_call = {"name": part.function_call.name}
-            # dump to match other function calling llm for now
-            function_call_args_dict = part.function_call.args
-            assert function_call_args_dict is not None
-            function_call["arguments"] = json.dumps(function_call_args_dict)
-            additional_kwargs["function_call"] = function_call
-
-            index = function_call.get("index")
-            tool_call_chunks.append(
-                tool_call_chunk(
-                    name=function_call.get("name"),
-                    args=function_call.get("arguments"),
-                    id=function_call.get("id", str(uuid.uuid4())),
-                    index=int(index) if index else None,
-                )
-            )
-    if content is None:
-        content = ""
-
-    return AIMessageChunk(
-        content=cast(str | list[str | dict[Any, Any]], content),
-        additional_kwargs=additional_kwargs,
-        tool_call_chunks=tool_call_chunks,
-    )
 
 
 class ChatGenAI(BaseChatModel):
@@ -476,7 +391,7 @@ class ChatGenAI(BaseChatModel):
                 "finish_reason": top_candidate.finish_reason,
                 "finish_message": top_candidate.finish_message,
             }
-            message = _parse_response_candidate(top_candidate)
+            message = parse_response_candidate(top_candidate)
             if lc_usage:
                 message.usage_metadata = lc_usage
             # add model name if final chunk
