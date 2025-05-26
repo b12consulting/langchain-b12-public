@@ -19,10 +19,10 @@ from langchain_core.messages.tool import tool_call_chunk
 def multi_content_to_part(
     contents: Sequence[dict[str, str | dict[str, str]] | str],
 ) -> list[types.Part]:
-    """Convert image content to a Part object.
+    """Convert sequence content to a Part object.
 
     Args:
-        contents: A sequence of dictionaries representing image content. Examples:
+        contents: A sequence of dictionaries representing content. Examples:
             [
                 {
                     "type": "text",
@@ -33,7 +33,7 @@ def multi_content_to_part(
                     "image_url": {
                         "url": f"data:{mime_type};base64,{encoded_artifact}"
                     },
-                }
+                },
                 {
                     "type": "file",
                     "file": {
@@ -138,8 +138,8 @@ def convert_messages_to_contents(
                 )
             )
         elif isinstance(message, ToolMessage):
-            # Note: We tried combining function_call and function_response into one part, but
-            # that throws a 4xx server error.
+            # Note: We tried combining function_call and function_response into one
+            # part, but that throws a 4xx server error.
             assert isinstance(message.content, str), "Expected str content"
             assert message.name, "Tool name is required"
             tool_part = types.Part(
