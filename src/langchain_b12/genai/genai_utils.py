@@ -34,7 +34,7 @@ def multi_content_to_part(
                         "url": f"data:{mime_type};base64,{encoded_artifact}"
                     },
                 },
-                { # Image content fro base64 encoded string with LangChain format
+                { # Image content from base64 encoded string with LangChain format
                     "type": "image",
                     "source_type": "base64",
                     "data": "<base64 string>",
