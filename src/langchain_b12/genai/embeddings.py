@@ -16,7 +16,8 @@ class GenAIEmbeddings(Embeddings, BaseModel):
                 filename=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],
             )
-        )
+        ),
+        exclude=True,
     )
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
