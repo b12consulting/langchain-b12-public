@@ -7,6 +7,10 @@ from typing import Any, Literal, cast
 from google import genai
 from google.genai import types
 from google.oauth2 import service_account
+from langchain_b12.genai.genai_utils import (
+    convert_messages_to_contents,
+    parse_response_candidate,
+)
 from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
@@ -36,11 +40,6 @@ from langchain_core.utils.function_calling import (
     convert_to_openai_tool,
 )
 from pydantic import BaseModel, ConfigDict, Field
-
-from langchain_b12.genai_utils import (
-    convert_messages_to_contents,
-    parse_response_candidate,
-)
 
 logger = logging.getLogger(__name__)
 
