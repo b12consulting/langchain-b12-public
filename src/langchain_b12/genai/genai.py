@@ -145,13 +145,14 @@ class ChatGenAI(BaseChatModel):
         self, messages: list[BaseMessage]
     ) -> tuple[str | None, types.ContentListUnion]:
         contents = convert_messages_to_contents(messages)
-        if isinstance(messages[-1], SystemMessage):
-            system_instruction = messages[-1].content
-            assert isinstance(
-                system_instruction, str
-            ), "System message content must be a string"
-        else:
-            system_instruction = None
+        system_message: SystemMessage | None = next(
+            (message for message in messages if isinstance(message, SystemMessage)),
+            None,
+        )
+        system_instruction = system_message.content if system_message else None
+        assert system_instruction is None or isinstance(
+            system_instruction, str
+        ), "System message content must be a string or None"
         return system_instruction, cast(types.ContentListUnion, contents)
 
     def get_num_tokens(self, text: str) -> int:
