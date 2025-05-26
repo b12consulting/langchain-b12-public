@@ -91,7 +91,6 @@ class ChatGenAI(BaseChatModel):
             """  # noqa: E501
 
     model_config = ConfigDict(
-        populate_by_name=True,
         arbitrary_types_allowed=True,
     )
 
