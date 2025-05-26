@@ -2,8 +2,6 @@
 
 This repo hosts a collection of custom LangChain components.
 
-- ChatGenAI converts a sequence of LangChain messages to Google GenAI Content objects and vice versa.
-
 ## Installation
 
 To install this package, run
