@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 
 class ChatGenAI(BaseChatModel):
+    """Implementation of BaseChatModel using `google-genai`"""
+
     client: genai.Client = Field(
         default_factory=lambda: genai.Client(
             vertexai=True,
@@ -120,7 +122,7 @@ class ChatGenAI(BaseChatModel):
     @classmethod
     def get_lc_namespace(cls) -> list[str]:
         """Get the namespace of the langchain object."""
-        return ["langchain_b12", "genai"]
+        return ["langchain_b12", "genai", "genai"]
 
     def _get_ls_params(
         self, stop: list[str] | None = None, **kwargs: Any
