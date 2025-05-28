@@ -148,7 +148,7 @@ async def add_citations(
         message.content, str
     ), "Citation agent currently only supports string content."
 
-    if not contains_context_tags(message.content):
+    if not contains_context_tags("\n".join(str(msg.content) for msg in messages)):
         # No context tags, nothing to do
         return message
 
