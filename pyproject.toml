@@ -1,6 +1,6 @@
 [project]
 name = "langchain-b12"
-version = "0.1.1"
+version = "0.1.2"
 description = "A reusable collection of tools and implementations for Langchain"
 readme = "README.md"
 authors = [

@@ -24,22 +24,37 @@ def multi_content_to_part(
     Args:
         contents: A sequence of dictionaries representing content. Examples:
             [
-                {
+                { # Text content
                     "type": "text",
                     "text": "This is a text message"
                 },
-                {
+                { # Image content from base64 encoded string with OpenAI format
                     "type": "image_url",
                     "image_url": {
                         "url": f"data:{mime_type};base64,{encoded_artifact}"
                     },
                 },
-                {
+                { # Image content from base64 encoded string with LangChain format
+                    "type": "image",
+                    "source_type": "base64",
+                    "data": "<base64 string>",
+                    "mime_type": "image/jpeg",
+                },
+                { # Image content from URL
+                    "type": "image",
+                    "source_type": "url",
+                    "url": "https://...",
+                },
+                { # File content from base64 encoded string
                     "type": "file",
-                    "file": {
-                        "uri": f"gs://{bucket_name}/{file_name}",
-                        "mime_type": mime_type,
-                    }
+                    "source_type": "base64",
+                    "mime_type": "application/pdf",
+                    "data": "<base64 data string>",
+                },
+                { # File content from URL
+                    "type": "file",
+                    "source_type": "url",
+                    "url": "https://...",
                 }
             ]
     """
@@ -60,15 +75,51 @@ def multi_content_to_part(
             mime_type = header.split(":", 1)[1].split(";", 1)[0]
             data = base64.b64decode(encoded_data)
             parts.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+        elif content["type"] == "image":
+            if "data" in content:
+                assert isinstance(content["data"], str), "Expected str data"
+                assert "mime_type" in content, "Expected 'mime_type' in content"
+                assert isinstance(content["mime_type"], str), "Expected str mime_type"
+                data = base64.b64decode(content["data"])
+                parts.append(
+                    types.Part.from_bytes(data=data, mime_type=content["mime_type"])
+                )
+            elif "url" in content:
+                assert isinstance(content["url"], str), "Expected str url"
+                mime_type = content.get("mime_type", None)
+                assert mime_type is None or isinstance(
+                    mime_type, str
+                ), "Expected str mime_type"
+                parts.append(
+                    types.Part.from_uri(file_uri=content["url"], mime_type=mime_type)
+                )
+            else:
+                raise ValueError(
+                    "Expected either 'data' or 'url' in content for image type"
+                )
         elif content["type"] == "file":
-            assert "file" in content, "Expected 'file' in content"
-            file = content["file"]
-            assert isinstance(file, dict), "Expected dict file"
-            assert "uri" in file, "Expected 'uri' in content['file']"
-            assert "mime_type" in file, "Expected 'mime_type' in content['file']"
-            parts.append(
-                types.Part.from_uri(file_uri=file["uri"], mime_type=file["mime_type"])
-            )
+            if "data" in content:
+                assert isinstance(content["data"], str), "Expected str data"
+                assert "mime_type" in content, "Expected 'mime_type' in content"
+                assert isinstance(content["mime_type"], str), "Expected str mime_type"
+                data = base64.b64decode(content["data"])
+                parts.append(
+                    types.Part.from_bytes(data=data, mime_type=content["mime_type"])
+                )
+            elif "url" in content:
+                assert isinstance(content["url"], str), "Expected str url"
+                assert content["url"], "File URI is required"
+                mime_type = content.get("mime_type", None)
+                assert mime_type is None or isinstance(
+                    mime_type, str
+                ), "Expected str mime_type"
+                parts.append(
+                    types.Part.from_uri(file_uri=content["url"], mime_type=mime_type)
+                )
+            else:
+                raise ValueError(
+                    "Expected either 'data' or 'url' in content for file type"
+                )
         else:
             raise ValueError(f"Unknown content type: {content['type']}")
     return parts
