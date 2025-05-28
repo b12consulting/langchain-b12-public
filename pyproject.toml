@@ -18,6 +18,10 @@ google = [
 dev = [
     "pytest>=8.3.5",
 ]
+citations = [
+    "langgraph>=0.4.7",
+    "langgraph-prebuilt>=0.2.2",
+]
 
 [build-system]
 requires = ["hatchling"]
