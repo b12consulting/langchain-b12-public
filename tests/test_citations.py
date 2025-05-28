@@ -195,6 +195,7 @@ class TestAddCitations:
         assert result == message
         model.with_structured_output.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_add_citations_with_context_tags(self):
         """Test add_citations with content that has context tags."""
         # Mock the model
