@@ -17,6 +17,7 @@ google = [
 ]
 dev = [
     "pytest>=8.3.5",
+    "pytest-asyncio>=1.0.0",
 ]
 citations = [
     "langgraph>=0.4.7",
