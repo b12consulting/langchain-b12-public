@@ -86,7 +86,12 @@ class Citations(BaseModel):
 
 def split_into_sentences(text: str) -> list[str]:
     """Split text into sentences on punctuation marks."""
-    return re.split(r"(?<=[.!?]) +", text.strip())
+    if not text:
+        return [text]
+
+    # Split after punctuation but before spaces, preserving the spaces
+    parts = re.split(r"(?<=[.!?])(?= +)", text)
+    return parts
 
 
 def contains_context_tags(text: str) -> bool:
@@ -157,7 +162,7 @@ async def add_citations(
     num_width = len(str(len(sentences)))
     numbered_message = AIMessage(
         content="\n".join(
-            f"{str(i).rjust(num_width)}: {sentence}"
+            f"{str(i).rjust(num_width)}: {sentence.strip()}"
             for i, sentence in enumerate(sentences)
         ),
         name=message.name,
