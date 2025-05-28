@@ -28,8 +28,8 @@ class TestUtilityFunctions:
         sentences = split_into_sentences(text)
         assert sentences == [
             "This is sentence one.",
-            "This is sentence two!",
-            "This is sentence three?",
+            " This is sentence two!",
+            " This is sentence three?",
         ]
 
         # Single sentence
@@ -45,12 +45,31 @@ class TestUtilityFunctions:
         # Text with multiple spaces
         text = "First sentence.    Second sentence!"
         sentences = split_into_sentences(text)
-        assert sentences == ["First sentence.", "Second sentence!"]
+        assert sentences == ["First sentence.", "    Second sentence!"]
 
         # Text with no punctuation
         text = "No punctuation here"
         sentences = split_into_sentences(text)
         assert sentences == ["No punctuation here"]
+
+    def test_split_into_sentences_preserves_text(self):
+        """Test that joining split sentences recreates the original text."""
+        test_cases = [
+            "This is sentence one. This is sentence two! This is sentence three?",
+            "Just one sentence.",
+            "",
+            "First sentence.    Second sentence!",
+            "No punctuation here",
+            "What?! Really... Yes.",
+            "Dr. Smith went home. He was tired.",
+            "Multiple   spaces.     Between sentences!",
+            "Text with newlines.\nSecond line. Third sentence!",
+        ]
+
+        for text in test_cases:
+            sentences = split_into_sentences(text)
+            reconstructed = "".join(sentences)
+            assert reconstructed == text, f"Failed for text: {repr(text)}"
 
     def test_contains_context_tags(self):
         """Test context tag detection."""
@@ -356,7 +375,7 @@ class TestCreateCitationModel:
         assert result.content[0]["citations"][0]["key"] == "weather"
 
         # Second sentence
-        assert result.content[1]["text"] == "Grass is green."
+        assert result.content[1]["text"] == " Grass is green."
         assert result.content[1]["citations"][0]["cited_text"] == "grass is green"
         assert result.content[1]["citations"][0]["key"] == "nature"
 
@@ -371,13 +390,13 @@ class TestEdgeCases:
         sentences = split_into_sentences(text)
         # The regex splits on any punctuation followed by space, so this creates 3 sentences
         assert len(sentences) == 3
-        assert sentences == ["What?!", "Really...", "Yes."]
+        assert sentences == ["What?!", " Really...", " Yes."]
 
         # Abbreviations (potential issue with splitting)
         text = "Dr. Smith went home. He was tired."
         sentences = split_into_sentences(text)
         # This will incorrectly split at "Dr. " - this is a known limitation
-        assert len(sentences) == 3  # "Dr.", "Smith went home.", "He was tired."
+        assert len(sentences) == 3  # "Dr.", " Smith went home.", " He was tired."
 
     def test_contains_context_tags_malformed(self):
         """Test context tag detection with malformed tags."""
