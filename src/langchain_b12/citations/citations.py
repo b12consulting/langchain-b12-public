@@ -10,12 +10,44 @@ from pydantic import BaseModel, Field
 
 SYSTEM_PROMPT = """
 You are an expert at identifying and adding citations to text.
-Your task is to identify the sentences in the provided text that require citations and add them accordingly.
-You will receive a numbered list of sentences from the AI's response.
-For each sentence, you will provide a citation that includes the following information:
-1. The index of the sentence from the AI's response that this citation refers to.
-2. The text that is cited from the document. Make sure you cite it verbatim!
-3. The key of the document you are citing.
+Your task is to identify, for each sentence in the final message, which citations were used to generate it.
+
+You will receive a numbered zero-indexed list of sentences in the final message, e.g.
+```
+0: Grass is green.
+1: The sky is blue and the sun is shining.
+```
+The rest of the conversation may contain contexts enclosed in xml tags, e.g.
+```
+<context key="abc">
+Today is a sunny day and the color of the grass is green.
+</context>
+```
+Each sentence may have zero, one, or multiple citations from the contexts.
+Each citation may be used for zero, one or multiple sentences.
+A context may be cited zero, one, or multiple times.
+
+The final message will be based on the contexts, but may not mention them explicitly.
+You must identify which contexts and which parts of the contexts were used to generate each sentence.
+For each such case, you must return a citation with a "sentence_index", "cited_text" and "key" property.
+The "sentence_index" is the index of the sentence in the final message.
+The "cited_text" must be a substring of the full context that was used to generate the sentence.
+The "key" must be the key of the context that was used to generate the sentence.
+Make sure that you copy the "cited_text" verbatim from the context, or it will not be considered valid.
+
+For the example above, the output should look like this:
+[
+    {
+        "sentence_index": 0,
+        "cited_text": "the color of the grass is green",
+        "key": "abc"
+    },
+    {
+        "sentence_index": 1,
+        "cited_text": "Today is a sunny day",
+        "key": "abc"
+    },
+]
 """.strip()  # noqa: E501
 
 
@@ -33,6 +65,7 @@ class ContentType(TypedDict):
 
 
 class Citation(BaseModel):
+
     sentence_index: int = Field(
         ...,
         description="The index of the sentence from your answer "
@@ -47,12 +80,18 @@ class Citation(BaseModel):
 
 
 class Citations(BaseModel):
+
     values: list[Citation] = Field(..., description="List of citations")
 
 
 def split_into_sentences(text: str) -> list[str]:
     """Split text into sentences on punctuation marks."""
     return re.split(r"(?<=[.!?]) +", text.strip())
+
+
+def contains_context_tags(text: str) -> bool:
+    """Check if the text contains context tags."""
+    return bool(re.search(r"<context\s+key=[^>]+>.*?</context>", text, re.DOTALL))
 
 
 def merge_citations(sentences: list[str], citations: Citations) -> list[ContentType]:
@@ -108,6 +147,11 @@ async def add_citations(
     assert isinstance(
         message.content, str
     ), "Citation agent currently only supports string content."
+
+    if not contains_context_tags(message.content):
+        # No context tags, nothing to do
+        return message
+
     sentences = split_into_sentences(message.content)
 
     num_width = len(str(len(sentences)))
@@ -137,20 +181,18 @@ def create_citation_model(
     system_prompt: str | None = None,
 ) -> Runnable[Sequence[BaseMessage], AIMessage]:
     """Take a base chat model and wrap it such that it adds citations to the messages.
-    The AIMessage will have the following structure:
+    Any contexts to be cited should be provided in the messages as XML tags,
+    e.g. `<context key="abc">Today is a sunny day</context>`.
+    The returned AIMessage will have the following structure:
     AIMessage(
         content= {
             "citations": [
                 {
-                    "cited_text": "The grass is green. ",
-                    "document_index": 0,
-                    "document_title": "My Document",
-                    "end_char_index": 20,
-                    "start_char_index": 0,
-                    "type": "char_location",
+                    "cited_text": "Today is a sunny day",
+                    "key": "abc"
                 }
             ],
-            "text": "the grass is green",
+            "text": "The grass is green",
             "type": "text",
         },
     )
