@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 from google.genai import Client, types
-from langchain_b12.genai import ChatGenAI
+from langchain_b12.genai.genai import ChatGenAI
 from langchain_core.messages import HumanMessage
 
 
