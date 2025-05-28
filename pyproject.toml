@@ -64,3 +64,8 @@ reportUnknownParameterType = false
 reportUnknownMemberType = false
 reportUnknownArgumentType = false
 
+# Add pytest configuration
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
+
