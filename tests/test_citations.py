@@ -199,7 +199,7 @@ class TestUtilityFunctions:
         assert match["dist"] >= 0  # Should have some fuzzy match distance
         assert match["matched"] == "This is valid cited text"
 
-        # Second citation should also be included (fuzzy matching allows partial matches)
+        # Second citation should also be included, fuzzy matching allows partial matches
         citation2, match2 = validated[1]
         assert citation2.sentence_index == 1
         assert citation2.cited_text == "This text is not in messages"
