@@ -87,13 +87,16 @@ class Citations(BaseModel):
 
 
 def split_into_sentences(text: str) -> list[str]:
-    """Split text into sentences on punctuation marks."""
+    """Split text into sentences on punctuation marks and newlines."""
     if not text:
         return [text]
 
-    # Split after punctuation but before spaces, preserving the spaces
-    parts = re.split(r"(?<=[.!?])(?= +)", text)
-    return parts
+    # Split after punctuation followed by spaces, or on newlines
+    # Use capturing groups to preserve delimiters (spaces and newlines)
+    parts = re.split(r"((?<=[.!?])(?= +)|\n+)", text)
+
+    # Filter out empty strings that can result from splitting
+    return [part for part in parts if part]
 
 
 def contains_context_tags(text: str) -> bool:
