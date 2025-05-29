@@ -20,8 +20,8 @@ dev = [
     "pytest-asyncio>=1.0.0",
 ]
 citations = [
+    "fuzzysearch>=0.8.0",
     "langgraph>=0.4.7",
-    "rapidfuzz>=3.13.0",
 ]
 
 [build-system]
