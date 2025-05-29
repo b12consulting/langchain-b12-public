@@ -2,12 +2,12 @@ import re
 from collections.abc import Sequence
 from typing import Literal, TypedDict
 
+from fuzzysearch import find_near_matches
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.runnables import Runnable
 from langgraph.utils.runnable import RunnableCallable
 from pydantic import BaseModel, Field
-from rapidfuzz import fuzz
 
 SYSTEM_PROMPT = """
 You are an expert at identifying and adding citations to text.
@@ -52,11 +52,19 @@ For the example above, the output should look like this:
 """.strip()  # noqa: E501
 
 
+class Match(TypedDict):
+    start: int
+    end: int
+    dist: int
+    matched: str
+
+
 class CitationType(TypedDict):
 
-    cited_text: str
+    cited_text: str | None
+    generated_cited_text: str
     key: str
-    score: float
+    dist: int | None
 
 
 class ContentType(TypedDict):
@@ -105,21 +113,32 @@ def contains_context_tags(text: str) -> bool:
 
 
 def merge_citations(
-    sentences: list[str], citations: list[tuple[Citation, float]]
+    sentences: list[str], citations: list[tuple[Citation, Match | None]]
 ) -> list[ContentType]:
     """Merge citations into sentences."""
     content: list[ContentType] = []
     for sentence_index, sentence in enumerate(sentences):
         _citations: list[CitationType] = []
-        for citation, score in citations:
+        for citation, match in citations:
             if citation.sentence_index == sentence_index:
-                _citations.append(
-                    {
-                        "cited_text": citation.cited_text,
-                        "key": citation.key,
-                        "score": score,
-                    }
-                )
+                if match is None:
+                    _citations.append(
+                        {
+                            "cited_text": None,
+                            "generated_cited_text": citation.cited_text,
+                            "key": citation.key,
+                            "dist": None,
+                        }
+                    )
+                else:
+                    _citations.append(
+                        {
+                            "cited_text": match["matched"],
+                            "generated_cited_text": citation.cited_text,
+                            "key": citation.key,
+                            "dist": match["dist"],
+                        }
+                    )
         content.append(
             {"text": sentence, "citations": _citations or None, "type": "text"}
         )
@@ -131,7 +150,7 @@ def validate_citations(
     citations: Citations,
     messages: Sequence[BaseMessage],
     sentences: list[str],
-) -> list[tuple[Citation, float]]:
+) -> list[tuple[Citation, Match | None]]:
     """Validate the citations. Invalid citations are dropped."""
     n_sentences = len(sentences)
 
@@ -139,14 +158,28 @@ def validate_citations(
         str(msg.content) for msg in messages if isinstance(msg.content, str)
     )
 
-    citations_with_scores: list[tuple[Citation, float]] = []
+    citations_with_matches: list[tuple[Citation, Match | None]] = []
     for citation in citations.values:
         if citation.sentence_index < 0 or citation.sentence_index >= n_sentences:
             # discard citations that refer to non-existing sentences
             continue
-        score = fuzz.partial_ratio(citation.cited_text, all_text)
-        citations_with_scores.append((citation, score))
-    return citations_with_scores
+        matches = find_near_matches(citation.cited_text, all_text, max_l_dist=5)
+        if not matches:
+            citations_with_matches.append((citation, None))
+        else:
+            match = matches[0]
+            citations_with_matches.append(
+                (
+                    citation,
+                    Match(
+                        start=match.start,
+                        end=match.end,
+                        dist=match.dist,
+                        matched=match.matched,
+                    ),
+                )
+            )
+    return citations_with_matches
 
 
 async def add_citations(
@@ -204,8 +237,10 @@ def create_citation_model(
         content= {
             "citations": [
                 {
-                    "cited_text": "Today is a sunny day",
-                    "key": "abc"
+                    "cited_text": "the color of the grass is green",
+                    "generated_cited_text": "the color of the grass is green",
+                    "key": "abc",
+                    "dist": 0,
                 }
             ],
             "text": "The grass is green",
