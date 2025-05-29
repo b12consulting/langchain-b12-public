@@ -21,7 +21,7 @@ dev = [
 ]
 citations = [
     "langgraph>=0.4.7",
-    "langgraph-prebuilt>=0.2.2",
+    "rapidfuzz>=3.13.0",
 ]
 
 [build-system]
