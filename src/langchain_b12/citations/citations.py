@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.runnables import Runnable
 from langgraph.utils.runnable import RunnableCallable
 from pydantic import BaseModel, Field
+from rapidfuzz import fuzz
 
 SYSTEM_PROMPT = """
 You are an expert at identifying and adding citations to text.
@@ -55,6 +56,7 @@ class CitationType(TypedDict):
 
     cited_text: str
     key: str
+    score: float
 
 
 class ContentType(TypedDict):
@@ -99,15 +101,21 @@ def contains_context_tags(text: str) -> bool:
     return bool(re.search(r"<context\s+key=[^>]+>.*?</context>", text, re.DOTALL))
 
 
-def merge_citations(sentences: list[str], citations: Citations) -> list[ContentType]:
+def merge_citations(
+    sentences: list[str], citations: list[tuple[Citation, float]]
+) -> list[ContentType]:
     """Merge citations into sentences."""
     content: list[ContentType] = []
     for sentence_index, sentence in enumerate(sentences):
         _citations: list[CitationType] = []
-        for citation in citations.values:
+        for citation, score in citations:
             if citation.sentence_index == sentence_index:
                 _citations.append(
-                    {"cited_text": citation.cited_text, "key": citation.key}
+                    {
+                        "cited_text": citation.cited_text,
+                        "key": citation.key,
+                        "score": score,
+                    }
                 )
         content.append(
             {"text": sentence, "citations": _citations or None, "type": "text"}
@@ -120,7 +128,7 @@ def validate_citations(
     citations: Citations,
     messages: Sequence[BaseMessage],
     sentences: list[str],
-) -> Citations:
+) -> list[tuple[Citation, float]]:
     """Validate the citations. Invalid citations are dropped."""
     n_sentences = len(sentences)
 
@@ -128,14 +136,14 @@ def validate_citations(
         str(msg.content) for msg in messages if isinstance(msg.content, str)
     )
 
-    _citations: list[Citation] = []
+    citations_with_scores: list[tuple[Citation, float]] = []
     for citation in citations.values:
         if citation.sentence_index < 0 or citation.sentence_index >= n_sentences:
+            # discard citations that refer to non-existing sentences
             continue
-        if citation.cited_text not in all_text:
-            continue
-        _citations.append(citation)
-    return Citations(values=_citations)
+        score = fuzz.partial_ratio(citation.cited_text, all_text)
+        citations_with_scores.append((citation, score))
+    return citations_with_scores
 
 
 async def add_citations(
