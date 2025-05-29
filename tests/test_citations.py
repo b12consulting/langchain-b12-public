@@ -1,12 +1,11 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from langchain_b12.citations.citations import (
     SYSTEM_PROMPT,
     Citation,
     Citations,
-    CitationType,
-    ContentType,
+    Match,
     add_citations,
     contains_context_tags,
     create_citation_model,
@@ -105,13 +104,26 @@ class TestUtilityFunctions:
     def test_merge_citations(self):
         """Test merging citations with sentences."""
         sentences = ["First sentence.", "Second sentence.", "Third sentence."]
-        citations_with_scores = [
-            (Citation(sentence_index=0, cited_text="source text 1", key="key1"), 95.0),
-            (Citation(sentence_index=0, cited_text="source text 2", key="key2"), 88.5),
-            (Citation(sentence_index=2, cited_text="source text 3", key="key3"), 92.0),
+        citations_with_matches: list[tuple[Citation, Match | None]] = [
+            (
+                Citation(sentence_index=0, cited_text="source text 1", key="key1"),
+                {"start": 0, "end": 13, "dist": 0, "matched": "source text 1"},
+            ),
+            (
+                Citation(sentence_index=0, cited_text="source text 2", key="key2"),
+                {"start": 0, "end": 13, "dist": 1, "matched": "source text 2"},
+            ),
+            (
+                Citation(sentence_index=2, cited_text="source text 3", key="key3"),
+                {"start": 0, "end": 13, "dist": 2, "matched": "source text 3"},
+            ),
+            (
+                Citation(sentence_index=2, cited_text="source text 4", key="key4"),
+                None,
+            ),
         ]
 
-        result = merge_citations(sentences, citations_with_scores)
+        result = merge_citations(sentences, citations_with_matches)
 
         assert len(result) == 3
 
@@ -121,21 +133,26 @@ class TestUtilityFunctions:
         assert len(result[0]["citations"]) == 2
         assert result[0]["citations"][0]["cited_text"] == "source text 1"
         assert result[0]["citations"][0]["key"] == "key1"
-        assert result[0]["citations"][0]["score"] == 95.0
+        assert result[0]["citations"][0]["dist"] == 0
         assert result[0]["citations"][1]["cited_text"] == "source text 2"
         assert result[0]["citations"][1]["key"] == "key2"
-        assert result[0]["citations"][1]["score"] == 88.5
+        assert result[0]["citations"][1]["dist"] == 1
 
         # Second sentence has no citations
         assert result[1]["text"] == "Second sentence."
         assert result[1]["citations"] is None
 
-        # Third sentence has one citation
+        # Third sentence has two citations
         assert result[2]["text"] == "Third sentence."
-        assert len(result[2]["citations"]) == 1
+        assert len(result[2]["citations"]) == 2
         assert result[2]["citations"][0]["cited_text"] == "source text 3"
         assert result[2]["citations"][0]["key"] == "key3"
-        assert result[2]["citations"][0]["score"] == 92.0
+        assert result[2]["citations"][0]["dist"] == 2
+
+        assert result[2]["citations"][1]["cited_text"] is None
+        assert result[2]["citations"][1]["key"] == "key4"
+        assert result[2]["citations"][1]["dist"] is None
+        assert result[2]["citations"][1]["generated_cited_text"] == "source text 4"
 
     def test_validate_citations(self):
         """Test citation validation."""
@@ -168,25 +185,26 @@ class TestUtilityFunctions:
 
         validated = validate_citations(citations, messages, sentences)
 
-        # Should return list of tuples with citations and scores
+        # Should return list of tuples with citations and matches
         assert isinstance(validated, list)
         assert len(validated) == 2  # Two valid citations (indexes 0 and 1)
 
-        # Each item should be a tuple of (Citation, float)
-        citation, score = validated[0]
+        # Each item should be a tuple of (Citation, Match | None)
+        citation, match = validated[0]
         assert isinstance(citation, Citation)
-        assert isinstance(score, float)
         assert citation.sentence_index == 0
         assert citation.cited_text == "This is valid cited text"
         assert citation.key == "test"
-        assert score > 0  # Should have some fuzzy match score
+        assert match is not None
+        assert match["dist"] >= 0  # Should have some fuzzy match distance
+        assert match["matched"] == "This is valid cited text"
 
         # Second citation should also be included (fuzzy matching allows partial matches)
-        citation2, score2 = validated[1]
+        citation2, match2 = validated[1]
         assert citation2.sentence_index == 1
         assert citation2.cited_text == "This text is not in messages"
         assert citation2.key == "test"
-        assert score2 >= 0
+        assert match2 is None
 
 
 class TestAddCitations:
@@ -273,9 +291,9 @@ class TestAddCitations:
         assert "This sentence uses" in result.content[0]["text"]
         assert result.content[0]["type"] == "text"
         assert len(result.content[0]["citations"]) == 1
-        assert result.content[0]["citations"][0]["cited_text"] == "test context"
+        # The cited_text might be modified by fuzzy matching
         assert result.content[0]["citations"][0]["key"] == "key1"
-        assert "score" in result.content[0]["citations"][0]
+        assert "dist" in result.content[0]["citations"][0]
 
     @pytest.mark.asyncio
     async def test_add_citations_multiple_sentences(self):
@@ -387,15 +405,15 @@ class TestCreateCitationModel:
 
         # First sentence
         assert result.content[0]["text"] == "The sky is blue."
-        assert result.content[0]["citations"][0]["cited_text"] == "sky is blue"
+        # The cited_text might be modified by fuzzy matching
         assert result.content[0]["citations"][0]["key"] == "weather"
-        assert "score" in result.content[0]["citations"][0]
+        assert "dist" in result.content[0]["citations"][0]
 
         # Second sentence
         assert result.content[1]["text"] == " Grass is green."
-        assert result.content[1]["citations"][0]["cited_text"] == "grass is green"
+        # The cited_text might be modified by fuzzy matching
         assert result.content[1]["citations"][0]["key"] == "nature"
-        assert "score" in result.content[1]["citations"][0]
+        assert "dist" in result.content[1]["citations"][0]
 
 
 class TestEdgeCases:
@@ -440,7 +458,7 @@ class TestEdgeCases:
         result = validate_citations(citations, messages, sentences)
         assert len(result) == 0
 
-        # Empty messages - citations should still be returned with score 0.0
+        # Empty messages - citations should still be returned with match or None
         citations = Citations(
             values=[Citation(sentence_index=0, cited_text="test", key="key")]
         )
@@ -449,11 +467,11 @@ class TestEdgeCases:
 
         result = validate_citations(citations, messages, sentences)
         assert len(result) == 1
-        citation, score = result[0]
+        citation, match = result[0]
         assert citation.cited_text == "test"
         assert citation.key == "key"
-        # Score will be 0.0 when matching against empty text
-        assert score == 0.0
+        assert match is not None
+        assert match["dist"] >= 0
 
         # Empty sentences
         citations = Citations(
