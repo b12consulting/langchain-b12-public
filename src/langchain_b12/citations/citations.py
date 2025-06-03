@@ -1,10 +1,13 @@
 import re
 from collections.abc import Sequence
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
+from uuid import UUID
 
 from fuzzysearch import find_near_matches
+from langchain_core.callbacks import Callbacks
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, LLMResult
 from langchain_core.runnables import Runnable
 from langgraph.utils.runnable import RunnableCallable
 from pydantic import BaseModel, Field
@@ -272,3 +275,69 @@ def create_citation_model(
         func=None,  # TODO: Implement a sync version if needed
         afunc=ainvoke_with_citations,
     )
+
+
+class CitationMixin(BaseChatModel):
+    """Mixin class to add citation functionality to a runnable.
+
+    Example usage:
+    ```
+    from langchain_b12.genai.genai import ChatGenAI
+    from langchain_b12.citations.citations import CitationMixin
+
+    class CitationModel(ChatGenAI, CitationMixin):
+        pass
+    ```
+    """
+
+    # This flag is used to prevent recursion when adding citations
+    _adding_citations: bool = False
+
+    async def agenerate(
+        self,
+        messages: list[list[BaseMessage]],
+        stop: list[str] | None = None,
+        callbacks: Callbacks = None,
+        *,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        run_name: str | None = None,
+        run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> LLMResult:
+        llm_result = await super().agenerate(
+            messages,
+            stop,
+            callbacks,
+            tags=tags,
+            metadata=metadata,
+            run_name=run_name,
+            run_id=run_id,
+            **kwargs,
+        )
+
+        # Prevent recursion when extracting citations
+        if self._adding_citations:
+            # If we are in the process of adding citations, return the result as is
+            return llm_result
+
+        # Set flag to prevent recursion
+        self._adding_citations = True
+        try:
+            # overwrite each generation with a version that has citations added
+            for _messages, generations in zip(messages, llm_result.generations):
+                for generation in generations:
+                    assert isinstance(generation, ChatGeneration) and not isinstance(
+                        generation, ChatGenerationChunk
+                    ), f"Expected ChatGeneration; received {type(generation)}"
+                    assert isinstance(
+                        generation.message, AIMessage
+                    ), f"Expected AIMessage; received {type(generation.message)}"
+                    message_with_citations = await add_citations(
+                        self, _messages, generation.message, SYSTEM_PROMPT
+                    )
+                    generation.message = message_with_citations
+        finally:
+            self._adding_citations = False
+
+        return llm_result
