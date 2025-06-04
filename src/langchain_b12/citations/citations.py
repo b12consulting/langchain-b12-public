@@ -190,6 +190,7 @@ async def add_citations(
     messages: Sequence[BaseMessage],
     message: AIMessage,
     system_prompt: str,
+    **kwargs: Any,
 ) -> AIMessage:
     """Add citations to the message."""
     if not message.content:
@@ -217,7 +218,9 @@ async def add_citations(
     system_message = SystemMessage(system_prompt)
     _messages = [system_message, *messages, numbered_message]
 
-    citations = await model.with_structured_output(Citations).ainvoke(_messages)
+    citations = await model.with_structured_output(Citations).ainvoke(
+        _messages, **kwargs
+    )
     assert isinstance(
         citations, Citations
     ), f"Expected Citations from model invocation but got {type(citations)}"
@@ -290,9 +293,6 @@ class CitationMixin(BaseChatModel):
     ```
     """
 
-    # This flag is used to prevent recursion when adding citations
-    _adding_citations: bool = False
-
     async def agenerate(
         self,
         messages: list[list[BaseMessage]],
@@ -305,6 +305,9 @@ class CitationMixin(BaseChatModel):
         run_id: UUID | None = None,
         **kwargs: Any,
     ) -> LLMResult:
+        # Check if we should generate citations and remove it from kwargs
+        generate_citations = kwargs.pop("generate_citations", True)
+
         llm_result = await super().agenerate(
             messages,
             stop,
@@ -317,27 +320,28 @@ class CitationMixin(BaseChatModel):
         )
 
         # Prevent recursion when extracting citations
-        if self._adding_citations:
-            # If we are in the process of adding citations, return the result as is
+        if not generate_citations:
+            # Below we are call `add_citations` which will call `agenerate` again
+            # This will lead to an infinite loop if we don't stop here.
+            # We explicitly pass `generate_citations=False` below to sto this recursion.
             return llm_result
 
-        # Set flag to prevent recursion
-        self._adding_citations = True
-        try:
-            # overwrite each generation with a version that has citations added
-            for _messages, generations in zip(messages, llm_result.generations):
-                for generation in generations:
-                    assert isinstance(generation, ChatGeneration) and not isinstance(
-                        generation, ChatGenerationChunk
-                    ), f"Expected ChatGeneration; received {type(generation)}"
-                    assert isinstance(
-                        generation.message, AIMessage
-                    ), f"Expected AIMessage; received {type(generation.message)}"
-                    message_with_citations = await add_citations(
-                        self, _messages, generation.message, SYSTEM_PROMPT
-                    )
-                    generation.message = message_with_citations
-        finally:
-            self._adding_citations = False
+        # overwrite each generation with a version that has citations added
+        for _messages, generations in zip(messages, llm_result.generations):
+            for generation in generations:
+                assert isinstance(generation, ChatGeneration) and not isinstance(
+                    generation, ChatGenerationChunk
+                ), f"Expected ChatGeneration; received {type(generation)}"
+                assert isinstance(
+                    generation.message, AIMessage
+                ), f"Expected AIMessage; received {type(generation.message)}"
+                message_with_citations = await add_citations(
+                    self,
+                    _messages,
+                    generation.message,
+                    SYSTEM_PROMPT,
+                    generate_citations=False,
+                )
+                generation.message = message_with_citations
 
         return llm_result
