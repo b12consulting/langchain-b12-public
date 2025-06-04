@@ -166,7 +166,11 @@ def validate_citations(
         if citation.sentence_index < 0 or citation.sentence_index >= n_sentences:
             # discard citations that refer to non-existing sentences
             continue
-        matches = find_near_matches(citation.cited_text, all_text, max_l_dist=5)
+        # Allow for 10% error distance
+        max_l_dist = max(1, len(citation.cited_text) // 10)
+        matches = find_near_matches(
+            citation.cited_text, all_text, max_l_dist=max_l_dist
+        )
         if not matches:
             citations_with_matches.append((citation, None))
         else:

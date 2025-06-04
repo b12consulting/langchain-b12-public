@@ -470,8 +470,7 @@ class TestEdgeCases:
         citation, match = result[0]
         assert citation.cited_text == "test"
         assert citation.key == "key"
-        assert match is not None
-        assert match["dist"] >= 0
+        assert match is None
 
         # Empty sentences
         citations = Citations(
