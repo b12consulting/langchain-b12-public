@@ -244,18 +244,25 @@ def create_citation_model(
     e.g. `<context key="abc">Today is a sunny day</context>`.
     The returned AIMessage will have the following structure:
     AIMessage(
-        content= {
-            "citations": [
-                {
-                    "cited_text": "the color of the grass is green",
-                    "generated_cited_text": "the color of the grass is green",
-                    "key": "abc",
-                    "dist": 0,
-                }
-            ],
-            "text": "The grass is green",
-            "type": "text",
-        },
+        content=[
+            {
+                "citations": [
+                    {
+                        "cited_text": "the color of the grass is green",
+                        "generated_cited_text": "the color of the grass is green",
+                        "key": "abc",
+                        "dist": 0,
+                    }
+                ],
+                "text": "The grass is green",
+                "type": "text",
+            },
+            {
+                "citations": None,
+                "text": "Is there anything else I can help you with?",
+                "type": "text",
+            }
+        ]
     )
 
     Args:
