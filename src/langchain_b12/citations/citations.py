@@ -3,7 +3,6 @@ from collections.abc import Sequence
 from typing import Any, Literal, TypedDict
 from uuid import UUID
 
-from fuzzysearch import find_near_matches
 from langchain_core.callbacks import Callbacks
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
@@ -155,6 +154,8 @@ def validate_citations(
     sentences: list[str],
 ) -> list[tuple[Citation, Match | None]]:
     """Validate the citations. Invalid citations are dropped."""
+    from fuzzysearch import find_near_matches
+
     n_sentences = len(sentences)
 
     all_text = "\n".join(
