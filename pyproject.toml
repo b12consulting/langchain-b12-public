@@ -1,6 +1,6 @@
 [project]
 name = "langchain-b12"
-version = "0.1.2"
+version = "0.1.5"
 description = "A reusable collection of tools and implementations for Langchain"
 readme = "README.md"
 authors = [
@@ -17,6 +17,11 @@ google = [
 ]
 dev = [
     "pytest>=8.3.5",
+    "pytest-asyncio>=1.0.0",
+]
+citations = [
+    "fuzzysearch>=0.8.0",
+    "langgraph>=0.4.7",
 ]
 
 [build-system]
@@ -58,4 +63,9 @@ ignore = [
 reportUnknownParameterType = false
 reportUnknownMemberType = false
 reportUnknownArgumentType = false
+
+# Add pytest configuration
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
 
