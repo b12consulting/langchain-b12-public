@@ -362,6 +362,8 @@ class ChatGenAI(BaseChatModel):
                 input_tokens=usage_metadata.prompt_token_count or 0,
                 output_tokens=usage_metadata.candidates_token_count or 0,
                 total_tokens=usage_metadata.total_token_count or 0,
+                input_token_details={"cache_read": usage_metadata.cached_content_token_count or 0},
+                output_token_details={"reasoning": usage_metadata.thoughts_token_count or 0},
             )
 
         total_lc_usage: UsageMetadata | None = (
