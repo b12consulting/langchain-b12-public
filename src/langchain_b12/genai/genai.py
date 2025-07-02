@@ -211,6 +211,9 @@ class ChatGenAI(BaseChatModel):
                 stop_sequences=stop or self.stop,
                 safety_settings=self.safety_settings,
                 thinking_config=self.thinking_config,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True,
+                ),
                 **kwargs,
             ),
         )
@@ -244,6 +247,9 @@ class ChatGenAI(BaseChatModel):
                 stop_sequences=stop or self.stop,
                 safety_settings=self.safety_settings,
                 thinking_config=self.thinking_config,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True,
+                ),
                 **kwargs,
             ),
         )
