@@ -437,20 +437,9 @@ class TestCitationMixin:
             ]
         ]
 
-        with (
-            patch.object(
-                CitationMixin.__bases__[0], "agenerate"
-            ) as mock_parent_agenerate,
-            patch(
-                "langchain_b12.citations.citations.add_citations"
-            ) as mock_add_citations,
-        ):
-
-            mock_parent_agenerate.return_value = LLMResult(
-                generations=[
-                    [ChatGeneration(message=AIMessage(content="Test response"))]
-                ]
-            )
+        with patch(
+            "langchain_b12.citations.citations.add_citations"
+        ) as mock_add_citations:
 
             # Simulate an error in citation processing
             mock_add_citations.side_effect = RuntimeError("Citation error")
