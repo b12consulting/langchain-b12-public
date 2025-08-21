@@ -419,6 +419,7 @@ class ChatGenAI(BaseChatModel):
             # add model name if final chunk
             if top_candidate.finish_reason is not None:
                 message.response_metadata["model_name"] = self.model_name
+                message.response_metadata["tags"] = self.tags or []
 
         return (
             ChatGenerationChunk(
