@@ -1,6 +1,7 @@
 import os
 
 from google.genai import Client
+from google.genai.types import EmbedContentConfigOrDict
 from google.oauth2 import service_account
 from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,6 +20,7 @@ class GenAIEmbeddings(Embeddings, BaseModel):
         ),
         exclude=True,
     )
+    embed_content_config: EmbedContentConfigOrDict | None = Field(default=None)
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
@@ -33,19 +35,17 @@ class GenAIEmbeddings(Embeddings, BaseModel):
             list[list[float]]: The embedding vectors.
         """
         embeddings = []
-        for text in texts:
-            response = self.client.models.embed_content(
-                model=self.model_name,
-                contents=[text],
-            )
+        response = self.client.models.embed_content(
+            model=self.model_name,
+            contents=texts,
+            config=self.embed_content_config,
+        )
+        assert response.embeddings is not None, "No embeddings found in the response."
+        for embedding in response.embeddings:
             assert (
-                response.embeddings is not None
-            ), "No embeddings found in the response."
-            for embedding in response.embeddings:
-                assert (
-                    embedding.values is not None
-                ), "No embedding values found in the response."
-                embeddings.append(embedding.values)
+                embedding.values is not None
+            ), "No embedding values found in the response."
+            embeddings.append(embedding.values)
         assert len(embeddings) == len(
             texts
         ), "The number of embeddings does not match the number of texts."
@@ -75,6 +75,7 @@ class GenAIEmbeddings(Embeddings, BaseModel):
         response = await self.client.aio.models.embed_content(
             model=self.model_name,
             contents=texts,
+            config=self.embed_content_config,
         )
         assert response.embeddings is not None, "No embeddings found in the response."
         for embedding in response.embeddings:

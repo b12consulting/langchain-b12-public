@@ -408,12 +408,18 @@ class ChatGenAI(BaseChatModel):
                 "finish_reason": top_candidate.finish_reason,
                 "finish_message": top_candidate.finish_message,
             }
-            message = parse_response_candidate(top_candidate)
+            try:
+                message = parse_response_candidate(top_candidate)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to parse model response: {top_candidate.finish_message}"
+                ) from e
             if lc_usage:
                 message.usage_metadata = lc_usage
             # add model name if final chunk
             if top_candidate.finish_reason is not None:
                 message.response_metadata["model_name"] = self.model_name
+                message.response_metadata["tags"] = self.tags or []
 
         return (
             ChatGenerationChunk(
