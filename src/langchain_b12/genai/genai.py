@@ -75,6 +75,8 @@ class ChatGenAI(BaseChatModel):
     """How many completions to generate for each prompt."""
     seed: int | None = None
     """Random seed for the generation."""
+    max_retries: int | None = Field(default=3)
+    """Maximum number of retries when generation fails. None disables retries."""
     safety_settings: list[types.SafetySetting] | None = None
     """The default safety settings to use for all generations.
 
@@ -173,10 +175,24 @@ class ChatGenAI(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        stream_iter = self._stream(
-            messages, stop=stop, run_manager=run_manager, **kwargs
-        )
-        return generate_from_stream(stream_iter)
+        attempts = 0
+        while True:
+            try:
+                stream_iter = self._stream(
+                    messages, stop=stop, run_manager=run_manager, **kwargs
+                )
+                return generate_from_stream(stream_iter)
+            except Exception as e:  # noqa: BLE001
+                if self.max_retries is None or attempts >= self.max_retries:
+                    raise
+                attempts += 1
+                logger.warning(
+                    "ChatGenAI._generate failed (attempt %d/%d). "
+                    "Retrying... Error: %s",
+                    attempts,
+                    self.max_retries,
+                    e,
+                )
 
     async def _agenerate(
         self,
@@ -185,10 +201,24 @@ class ChatGenAI(BaseChatModel):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        stream_iter = self._astream(
-            messages, stop=stop, run_manager=run_manager, **kwargs
-        )
-        return await agenerate_from_stream(stream_iter)
+        attempts = 0
+        while True:
+            try:
+                stream_iter = self._astream(
+                    messages, stop=stop, run_manager=run_manager, **kwargs
+                )
+                return await agenerate_from_stream(stream_iter)
+            except Exception as e:  # noqa: BLE001
+                if self.max_retries is None or attempts >= self.max_retries:
+                    raise
+                attempts += 1
+                logger.warning(
+                    "ChatGenAI._agenerate failed (attempt %d/%d). "
+                    "Retrying... Error: %s",
+                    attempts,
+                    self.max_retries,
+                    e,
+                )
 
     def _stream(
         self,
