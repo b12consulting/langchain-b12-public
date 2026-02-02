@@ -217,7 +217,7 @@ class ChatGenAI(BaseChatModel):
             wait=wait_exponential_jitter(initial=1, max=60),
             retry=retry_if_exception_type(Exception),
             before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._stream failed (attempt %d/%s). "
+                "ChatGenAI._stream failed to start (attempt %d/%s). "
                 "Retrying in %.2fs... Error: %s",
                 retry_state.attempt_number,
                 self.max_retries + 1 if self.max_retries is not None else "∞",
@@ -225,7 +225,12 @@ class ChatGenAI(BaseChatModel):
                 retry_state.outcome.exception(),
             ),
         )
-        def _stream_with_retry() -> list[ChatGenerationChunk]:
+        def _initiate_stream() -> tuple[
+            ChatGenerationChunk,
+            Iterator[types.GenerateContentResponse],
+            UsageMetadata | None,
+        ]:
+            """Initialize stream and fetch first chunk. Retries only apply here."""
             response_iter = self.client.models.generate_content_stream(
                 model=self.model_name,
                 contents=contents,
@@ -245,17 +250,26 @@ class ChatGenAI(BaseChatModel):
                     **kwargs,
                 ),
             )
-            chunks: list[ChatGenerationChunk] = []
-            total_lc_usage = None
-            for response_chunk in response_iter:
-                chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
-                    response_chunk, prev_total_usage=total_lc_usage
-                )
-                chunks.append(chunk)
-            return chunks
+            # Fetch first chunk to ensure connection is established
+            first_response = next(iter(response_iter))
+            first_chunk, total_usage = self._gemini_chunk_to_generation_chunk(
+                first_response, prev_total_usage=None
+            )
+            return first_chunk, response_iter, total_usage
 
-        chunks = _stream_with_retry()
-        for chunk in chunks:
+        # Retry only covers stream initialization and first chunk
+        first_chunk, response_iter, total_lc_usage = _initiate_stream()
+
+        # Yield first chunk
+        if run_manager and isinstance(first_chunk.message.content, str):
+            run_manager.on_llm_new_token(first_chunk.message.content)
+        yield first_chunk
+
+        # Continue streaming without retry (retries during streaming are not well defined)
+        for response_chunk in response_iter:
+            chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
+                response_chunk, prev_total_usage=total_lc_usage
+            )
             if run_manager and isinstance(chunk.message.content, str):
                 run_manager.on_llm_new_token(chunk.message.content)
             yield chunk
@@ -277,7 +291,7 @@ class ChatGenAI(BaseChatModel):
             wait=wait_exponential_jitter(initial=1, max=60),
             retry=retry_if_exception_type(Exception),
             before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._astream failed (attempt %d/%s). "
+                "ChatGenAI._astream failed to start (attempt %d/%s). "
                 "Retrying in %.2fs... Error: %s",
                 retry_state.attempt_number,
                 self.max_retries + 1 if self.max_retries is not None else "∞",
@@ -285,8 +299,13 @@ class ChatGenAI(BaseChatModel):
                 retry_state.outcome.exception(),
             ),
         )
-        async def _astream_with_retry() -> list[ChatGenerationChunk]:
-            response_iter = self.client.aio.models.generate_content_stream(
+        async def _initiate_stream() -> tuple[
+            ChatGenerationChunk,
+            AsyncIterator[types.GenerateContentResponse],
+            UsageMetadata | None,
+        ]:
+            """Initialize stream and fetch first chunk. Retries only apply here."""
+            response_iter = await self.client.aio.models.generate_content_stream(
                 model=self.model_name,
                 contents=contents,
                 config=types.GenerateContentConfig(
@@ -305,17 +324,26 @@ class ChatGenAI(BaseChatModel):
                     **kwargs,
                 ),
             )
-            chunks: list[ChatGenerationChunk] = []
-            total_lc_usage = None
-            async for response_chunk in await response_iter:
-                chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
-                    response_chunk, prev_total_usage=total_lc_usage
-                )
-                chunks.append(chunk)
-            return chunks
+            # Fetch first chunk to ensure connection is established
+            first_response = await response_iter.__anext__()
+            first_chunk, total_usage = self._gemini_chunk_to_generation_chunk(
+                first_response, prev_total_usage=None
+            )
+            return first_chunk, response_iter, total_usage
 
-        chunks = await _astream_with_retry()
-        for chunk in chunks:
+        # Retry only covers stream initialization and first chunk
+        first_chunk, response_iter, total_lc_usage = await _initiate_stream()
+
+        # Yield first chunk
+        if run_manager and isinstance(first_chunk.message.content, str):
+            await run_manager.on_llm_new_token(first_chunk.message.content)
+        yield first_chunk
+
+        # Continue streaming without retry (retries during streaming are not well defined)
+        async for response_chunk in response_iter:
+            chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
+                response_chunk, prev_total_usage=total_lc_usage
+            )
             if run_manager and isinstance(chunk.message.content, str):
                 await run_manager.on_llm_new_token(chunk.message.content)
             yield chunk
