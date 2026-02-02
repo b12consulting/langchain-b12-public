@@ -252,11 +252,10 @@ wheels = [
 
 [[package]]
 name = "langchain-b12"
-version = "0.1.9"
+version = "0.1.10"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-core" },
-    { name = "pytest-anyio" },
     { name = "tenacity" },
 ]
 
@@ -267,6 +266,7 @@ citations = [
 ]
 dev = [
     { name = "pytest" },
+    { name = "pytest-anyio" },
     { name = "pytest-asyncio" },
 ]
 google = [
@@ -276,7 +276,6 @@ google = [
 [package.metadata]
 requires-dist = [
     { name = "langchain-core", specifier = ">=0.3.60" },
-    { name = "pytest-anyio", specifier = ">=0.0.0" },
     { name = "tenacity", specifier = ">=9.1.2" },
 ]
 
@@ -287,6 +286,7 @@ citations = [
 ]
 dev = [
     { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-anyio", specifier = ">=0.0.0" },
     { name = "pytest-asyncio", specifier = ">=1.0.0" },
 ]
 google = [{ name = "google-genai", specifier = ">=1.16.1" }]
