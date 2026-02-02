@@ -160,7 +160,7 @@ async def _async_iter(items):
         yield item
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_astream_yields_chunks_immediately():
     """Test that async stream yields chunks as they arrive."""
     client: Client = MagicMock(spec=Client)
@@ -186,7 +186,7 @@ async def test_astream_yields_chunks_immediately():
     assert received == ["async1", "async2", "async3"]
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_astream_error_propagates():
     """Test that errors during async streaming are propagated."""
     client: Client = MagicMock(spec=Client)

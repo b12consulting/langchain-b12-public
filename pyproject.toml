@@ -17,7 +17,6 @@ google = [
 ]
 dev = [
     "pytest>=8.3.5",
-    "pytest-anyio>=0.0.0",
     "pytest-asyncio>=1.0.0",
 ]
 citations = [
