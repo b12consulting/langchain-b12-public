@@ -35,7 +35,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import (
     convert_to_openai_tool,
 )
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from langchain_b12.genai.genai_utils import (
     convert_messages_to_contents,

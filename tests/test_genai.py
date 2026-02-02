@@ -1,9 +1,10 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from google.genai import Client, types
-from langchain_b12.genai.genai import ChatGenAI
 from langchain_core.messages import HumanMessage
+
+from langchain_b12.genai.genai import ChatGenAI
 
 
 def _make_response_chunk(text: str) -> types.GenerateContentResponse:
