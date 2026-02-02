@@ -256,7 +256,6 @@ version = "0.1.10"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-core" },
-    { name = "tenacity" },
 ]
 
 [package.dev-dependencies]
@@ -274,10 +273,7 @@ google = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "langchain-core", specifier = ">=0.3.60" },
-    { name = "tenacity", specifier = ">=9.1.2" },
-]
+requires-dist = [{ name = "langchain-core", specifier = ">=0.3.60" }]
 
 [package.metadata.requires-dev]
 citations = [
