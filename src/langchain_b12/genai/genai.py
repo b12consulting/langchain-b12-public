@@ -84,7 +84,7 @@ class ChatGenAI(BaseChatModel):
     seed: int | None = None
     """Random seed for the generation."""
     max_retries: int | None = Field(default=3)
-    """Maximum number of retries when generation fails. None disables retries."""
+    """Maximum number of retries when generation fails. None retries indefinitely."""
     safety_settings: list[types.SafetySetting] | None = None
     """The default safety settings to use for all generations.
 
@@ -183,29 +183,10 @@ class ChatGenAI(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        @retry(
-            reraise=True,
-            stop=stop_after_attempt(self.max_retries + 1)
-            if self.max_retries is not None
-            else stop_never,
-            wait=wait_exponential_jitter(initial=1, max=60),
-            retry=retry_if_exception_type(Exception),
-            before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._generate failed (attempt %d/%s). "
-                "Retrying in %.2fs... Error: %s",
-                retry_state.attempt_number,
-                self.max_retries + 1 if self.max_retries is not None else "∞",
-                retry_state.next_action.sleep,
-                retry_state.outcome.exception(),
-            ),
+        stream_iter = self._stream(
+            messages, stop=stop, run_manager=run_manager, **kwargs
         )
-        def _generate_with_retry() -> ChatResult:
-            stream_iter = self._stream(
-                messages, stop=stop, run_manager=run_manager, **kwargs
-            )
-            return generate_from_stream(stream_iter)
-
-        return _generate_with_retry()
+        return generate_from_stream(stream_iter)
 
     async def _agenerate(
         self,
@@ -214,29 +195,10 @@ class ChatGenAI(BaseChatModel):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        @retry(
-            reraise=True,
-            stop=stop_after_attempt(self.max_retries + 1)
-            if self.max_retries is not None
-            else stop_never,
-            wait=wait_exponential_jitter(initial=1, max=60),
-            retry=retry_if_exception_type(Exception),
-            before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._agenerate failed (attempt %d/%s). "
-                "Retrying in %.2fs... Error: %s",
-                retry_state.attempt_number,
-                self.max_retries + 1 if self.max_retries is not None else "∞",
-                retry_state.next_action.sleep,
-                retry_state.outcome.exception(),
-            ),
+        stream_iter = self._astream(
+            messages, stop=stop, run_manager=run_manager, **kwargs
         )
-        async def _agenerate_with_retry() -> ChatResult:
-            stream_iter = self._astream(
-                messages, stop=stop, run_manager=run_manager, **kwargs
-            )
-            return await agenerate_from_stream(stream_iter)
-
-        return await _agenerate_with_retry()
+        return await agenerate_from_stream(stream_iter)
 
     def _stream(
         self,
@@ -246,30 +208,54 @@ class ChatGenAI(BaseChatModel):
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
         system_message, contents = self._prepare_request(messages=messages)
-        response_iter = self.client.models.generate_content_stream(
-            model=self.model_name,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_message,
-                temperature=self.temperature,
-                top_k=self.top_k,
-                top_p=self.top_p,
-                max_output_tokens=self.max_output_tokens,
-                candidate_count=self.n,
-                stop_sequences=stop or self.stop,
-                safety_settings=self.safety_settings,
-                thinking_config=self.thinking_config,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True,
-                ),
-                **kwargs,
+
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(self.max_retries + 1)
+            if self.max_retries is not None
+            else stop_never,
+            wait=wait_exponential_jitter(initial=1, max=60),
+            retry=retry_if_exception_type(Exception),
+            before_sleep=lambda retry_state: logger.warning(
+                "ChatGenAI._stream failed (attempt %d/%s). "
+                "Retrying in %.2fs... Error: %s",
+                retry_state.attempt_number,
+                self.max_retries + 1 if self.max_retries is not None else "∞",
+                retry_state.next_action.sleep,
+                retry_state.outcome.exception(),
             ),
         )
-        total_lc_usage = None
-        for response_chunk in response_iter:
-            chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
-                response_chunk, prev_total_usage=total_lc_usage
+        def _stream_with_retry() -> list[ChatGenerationChunk]:
+            response_iter = self.client.models.generate_content_stream(
+                model=self.model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_message,
+                    temperature=self.temperature,
+                    top_k=self.top_k,
+                    top_p=self.top_p,
+                    max_output_tokens=self.max_output_tokens,
+                    candidate_count=self.n,
+                    stop_sequences=stop or self.stop,
+                    safety_settings=self.safety_settings,
+                    thinking_config=self.thinking_config,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True,
+                    ),
+                    **kwargs,
+                ),
             )
+            chunks: list[ChatGenerationChunk] = []
+            total_lc_usage = None
+            for response_chunk in response_iter:
+                chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
+                    response_chunk, prev_total_usage=total_lc_usage
+                )
+                chunks.append(chunk)
+            return chunks
+
+        chunks = _stream_with_retry()
+        for chunk in chunks:
             if run_manager and isinstance(chunk.message.content, str):
                 run_manager.on_llm_new_token(chunk.message.content)
             yield chunk
@@ -282,30 +268,54 @@ class ChatGenAI(BaseChatModel):
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
         system_message, contents = self._prepare_request(messages=messages)
-        response_iter = self.client.aio.models.generate_content_stream(
-            model=self.model_name,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_message,
-                temperature=self.temperature,
-                top_k=self.top_k,
-                top_p=self.top_p,
-                max_output_tokens=self.max_output_tokens,
-                candidate_count=self.n,
-                stop_sequences=stop or self.stop,
-                safety_settings=self.safety_settings,
-                thinking_config=self.thinking_config,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True,
-                ),
-                **kwargs,
+
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(self.max_retries + 1)
+            if self.max_retries is not None
+            else stop_never,
+            wait=wait_exponential_jitter(initial=1, max=60),
+            retry=retry_if_exception_type(Exception),
+            before_sleep=lambda retry_state: logger.warning(
+                "ChatGenAI._astream failed (attempt %d/%s). "
+                "Retrying in %.2fs... Error: %s",
+                retry_state.attempt_number,
+                self.max_retries + 1 if self.max_retries is not None else "∞",
+                retry_state.next_action.sleep,
+                retry_state.outcome.exception(),
             ),
         )
-        total_lc_usage = None
-        async for response_chunk in await response_iter:
-            chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
-                response_chunk, prev_total_usage=total_lc_usage
+        async def _astream_with_retry() -> list[ChatGenerationChunk]:
+            response_iter = self.client.aio.models.generate_content_stream(
+                model=self.model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_message,
+                    temperature=self.temperature,
+                    top_k=self.top_k,
+                    top_p=self.top_p,
+                    max_output_tokens=self.max_output_tokens,
+                    candidate_count=self.n,
+                    stop_sequences=stop or self.stop,
+                    safety_settings=self.safety_settings,
+                    thinking_config=self.thinking_config,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True,
+                    ),
+                    **kwargs,
+                ),
             )
+            chunks: list[ChatGenerationChunk] = []
+            total_lc_usage = None
+            async for response_chunk in await response_iter:
+                chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
+                    response_chunk, prev_total_usage=total_lc_usage
+                )
+                chunks.append(chunk)
+            return chunks
+
+        chunks = await _astream_with_retry()
+        for chunk in chunks:
             if run_manager and isinstance(chunk.message.content, str):
                 await run_manager.on_llm_new_token(chunk.message.content)
             yield chunk
