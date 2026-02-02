@@ -106,7 +106,13 @@ class ChatGenAI(BaseChatModel):
     def _setup_retry_options(self) -> "ChatGenAI":
         """Convert max_retries to http_retry_options if not explicitly set."""
         if self.http_retry_options is None and self.max_retries is not None:
-            self.http_retry_options = types.HttpRetryOptions(attempts=self.max_retries)
+            self.http_retry_options = types.HttpRetryOptions(
+                attempts=self.max_retries,
+                initial_delay=1.0,
+                max_delay=60.0,
+                exp_base=2.0,
+                jitter=0.1,
+            )
         return self
 
     @property
