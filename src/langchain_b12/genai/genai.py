@@ -36,6 +36,13 @@ from langchain_core.utils.function_calling import (
     convert_to_openai_tool,
 )
 from pydantic import BaseModel, ConfigDict, Field
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_never,
+    wait_exponential_jitter,
+)
 
 from langchain_b12.genai.genai_utils import (
     convert_messages_to_contents,
@@ -176,24 +183,29 @@ class ChatGenAI(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        attempts = 0
-        while True:
-            try:
-                stream_iter = self._stream(
-                    messages, stop=stop, run_manager=run_manager, **kwargs
-                )
-                return generate_from_stream(stream_iter)
-            except Exception as e:  # noqa: BLE001
-                if self.max_retries is None or attempts >= self.max_retries:
-                    raise
-                attempts += 1
-                logger.warning(
-                    "ChatGenAI._generate failed (attempt %d/%d). "
-                    "Retrying... Error: %s",
-                    attempts,
-                    self.max_retries,
-                    e,
-                )
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(self.max_retries + 1)
+            if self.max_retries is not None
+            else stop_never,
+            wait=wait_exponential_jitter(initial=1, max=60),
+            retry=retry_if_exception_type(Exception),
+            before_sleep=lambda retry_state: logger.warning(
+                "ChatGenAI._generate failed (attempt %d/%s). "
+                "Retrying in %.2fs... Error: %s",
+                retry_state.attempt_number,
+                self.max_retries + 1 if self.max_retries is not None else "∞",
+                retry_state.next_action.sleep,
+                retry_state.outcome.exception(),
+            ),
+        )
+        def _generate_with_retry() -> ChatResult:
+            stream_iter = self._stream(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
+            return generate_from_stream(stream_iter)
+
+        return _generate_with_retry()
 
     async def _agenerate(
         self,
@@ -202,24 +214,29 @@ class ChatGenAI(BaseChatModel):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        attempts = 0
-        while True:
-            try:
-                stream_iter = self._astream(
-                    messages, stop=stop, run_manager=run_manager, **kwargs
-                )
-                return await agenerate_from_stream(stream_iter)
-            except Exception as e:  # noqa: BLE001
-                if self.max_retries is None or attempts >= self.max_retries:
-                    raise
-                attempts += 1
-                logger.warning(
-                    "ChatGenAI._agenerate failed (attempt %d/%d). "
-                    "Retrying... Error: %s",
-                    attempts,
-                    self.max_retries,
-                    e,
-                )
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(self.max_retries + 1)
+            if self.max_retries is not None
+            else stop_never,
+            wait=wait_exponential_jitter(initial=1, max=60),
+            retry=retry_if_exception_type(Exception),
+            before_sleep=lambda retry_state: logger.warning(
+                "ChatGenAI._agenerate failed (attempt %d/%s). "
+                "Retrying in %.2fs... Error: %s",
+                retry_state.attempt_number,
+                self.max_retries + 1 if self.max_retries is not None else "∞",
+                retry_state.next_action.sleep,
+                retry_state.outcome.exception(),
+            ),
+        )
+        async def _agenerate_with_retry() -> ChatResult:
+            stream_iter = self._astream(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
+            return await agenerate_from_stream(stream_iter)
+
+        return await _agenerate_with_retry()
 
     def _stream(
         self,
