@@ -251,7 +251,13 @@ class ChatGenAI(BaseChatModel):
                 ),
             )
             # Fetch first chunk to ensure connection is established
-            first_response = next(iter(response_iter))
+            # Use try/except to avoid StopIteration being raised inside generator (PEP 479)
+            try:
+                first_response = next(iter(response_iter))
+            except StopIteration as e:
+                raise ValueError(
+                    "No response from model. The stream was empty."
+                ) from e
             first_chunk, total_usage = self._gemini_chunk_to_generation_chunk(
                 first_response, prev_total_usage=None
             )
@@ -325,7 +331,13 @@ class ChatGenAI(BaseChatModel):
                 ),
             )
             # Fetch first chunk to ensure connection is established
-            first_response = await response_iter.__anext__()
+            # Use try/except to avoid StopIteration being raised inside generator (PEP 479)
+            try:
+                first_response = await response_iter.__anext__()
+            except StopAsyncIteration as e:
+                raise ValueError(
+                    "No response from model. The stream was empty."
+                ) from e
             first_chunk, total_usage = self._gemini_chunk_to_generation_chunk(
                 first_response, prev_total_usage=None
             )
