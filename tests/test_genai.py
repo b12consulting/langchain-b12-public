@@ -199,7 +199,7 @@ async def _async_iter(items):
         yield item
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_astream_yields_chunks_immediately():
     """Test that async stream yields chunks as they arrive."""
     client: Client = MagicMock(spec=Client)
@@ -225,7 +225,7 @@ async def test_astream_yields_chunks_immediately():
     assert received == ["async1", "async2", "async3"]
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 @patch("langchain_b12.genai.genai.wait_exponential_jitter", return_value=lambda _: 0)
 async def test_astream_no_retry_after_first_chunk(mock_wait):
     """Test that errors after first chunk are NOT retried in async."""
@@ -251,7 +251,7 @@ async def test_astream_no_retry_after_first_chunk(mock_wait):
     assert client.aio.models.generate_content_stream.call_count == 1
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 @patch("langchain_b12.genai.genai.wait_exponential_jitter", return_value=lambda _: 0)
 async def test_astream_retry_succeeds_after_failure(mock_wait):
     """Test that async retry logic works for initial failures."""
