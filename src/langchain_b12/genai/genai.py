@@ -331,7 +331,7 @@ class ChatGenAI(BaseChatModel):
                 ),
             )
             # Fetch first chunk to ensure connection is established
-            # Use try/except to avoid StopIteration being raised inside generator (PEP 479)
+            # Use try/except to avoid StopAsyncIteration being raised inside generator (PEP 525)
             try:
                 first_response = await response_iter.__anext__()
             except StopAsyncIteration as e:

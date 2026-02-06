@@ -39,6 +39,33 @@ def test_empty_stream_raises_clear_error(mock_wait):
 
 @patch("langchain_b12.genai.genai.wait_exponential_jitter", return_value=lambda _: 0)
 @pytest.mark.asyncio
+async def test_empty_async_stream_via_astream(mock_wait):
+    """Test collecting chunks from empty async stream - production scenario.
+
+    This reproduces the exact production path where empty streams would cause
+    "No generations found in stream" error. With the fix, we get a clearer error.
+    """
+    # Create a mock client
+    client: Client = MagicMock(spec=Client)
+
+    # Mock async empty iterator
+    client.aio.models.generate_content_stream = AsyncMock(
+        return_value=_empty_async_iter()
+    )
+
+    # Pass the mock client directly
+    llm = ChatGenAI(client=client)
+
+    messages = [HumanMessage(content="test")]
+
+    # With the fix, this should raise a clear ValueError
+    with pytest.raises(ValueError, match="No response from model"):
+        async for chunk in llm.astream(messages):
+            pass
+
+
+@patch("langchain_b12.genai.genai.wait_exponential_jitter", return_value=lambda _: 0)
+@pytest.mark.asyncio
 async def test_empty_async_stream_raises_clear_error(mock_wait):
     """Test that an empty async stream from the API raises a clear error.
 
