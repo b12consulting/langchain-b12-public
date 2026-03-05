@@ -35,14 +35,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import (
     convert_to_openai_tool,
 )
-from pydantic import BaseModel, ConfigDict, Field
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    stop_never,
-    wait_exponential_jitter,
-)
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from langchain_b12.genai.genai_utils import (
     convert_messages_to_contents,
@@ -84,7 +77,9 @@ class ChatGenAI(BaseChatModel):
     seed: int | None = None
     """Random seed for the generation."""
     max_retries: int | None = Field(default=3)
-    """Maximum number of retries when generation fails. None disables retries."""
+    """Maximum number of retries. Prefer `http_retry_options`, but this is kept for compatibility."""
+    http_retry_options: types.HttpRetryOptions | None = Field(default=None)
+    """HTTP retry options for API requests. If not set, max_retries will be used to create default options."""
     safety_settings: list[types.SafetySetting] | None = None
     """The default safety settings to use for all generations.
 
@@ -106,6 +101,19 @@ class ChatGenAI(BaseChatModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
+
+    @model_validator(mode="after")
+    def _setup_retry_options(self) -> "ChatGenAI":
+        """Convert max_retries to http_retry_options if not explicitly set."""
+        if self.http_retry_options is None and self.max_retries is not None:
+            self.http_retry_options = types.HttpRetryOptions(
+                attempts=self.max_retries,
+                initial_delay=1.0,
+                max_delay=60.0,
+                exp_base=2.0,
+                jitter=0.1,
+            )
+        return self
 
     @property
     def _llm_type(self) -> str:
@@ -183,29 +191,10 @@ class ChatGenAI(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        @retry(
-            reraise=True,
-            stop=stop_after_attempt(self.max_retries + 1)
-            if self.max_retries is not None
-            else stop_never,
-            wait=wait_exponential_jitter(initial=1, max=60),
-            retry=retry_if_exception_type(Exception),
-            before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._generate failed (attempt %d/%s). "
-                "Retrying in %.2fs... Error: %s",
-                retry_state.attempt_number,
-                self.max_retries + 1 if self.max_retries is not None else "∞",
-                retry_state.next_action.sleep,
-                retry_state.outcome.exception(),
-            ),
+        stream_iter = self._stream(
+            messages, stop=stop, run_manager=run_manager, **kwargs
         )
-        def _generate_with_retry() -> ChatResult:
-            stream_iter = self._stream(
-                messages, stop=stop, run_manager=run_manager, **kwargs
-            )
-            return generate_from_stream(stream_iter)
-
-        return _generate_with_retry()
+        return generate_from_stream(stream_iter)
 
     async def _agenerate(
         self,
@@ -214,29 +203,10 @@ class ChatGenAI(BaseChatModel):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        @retry(
-            reraise=True,
-            stop=stop_after_attempt(self.max_retries + 1)
-            if self.max_retries is not None
-            else stop_never,
-            wait=wait_exponential_jitter(initial=1, max=60),
-            retry=retry_if_exception_type(Exception),
-            before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._agenerate failed (attempt %d/%s). "
-                "Retrying in %.2fs... Error: %s",
-                retry_state.attempt_number,
-                self.max_retries + 1 if self.max_retries is not None else "∞",
-                retry_state.next_action.sleep,
-                retry_state.outcome.exception(),
-            ),
+        stream_iter = self._astream(
+            messages, stop=stop, run_manager=run_manager, **kwargs
         )
-        async def _agenerate_with_retry() -> ChatResult:
-            stream_iter = self._astream(
-                messages, stop=stop, run_manager=run_manager, **kwargs
-            )
-            return await agenerate_from_stream(stream_iter)
-
-        return await _agenerate_with_retry()
+        return await agenerate_from_stream(stream_iter)
 
     def _stream(
         self,
@@ -246,10 +216,16 @@ class ChatGenAI(BaseChatModel):
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
         system_message, contents = self._prepare_request(messages=messages)
+        http_options = (
+            types.HttpOptions(retry_options=self.http_retry_options)
+            if self.http_retry_options
+            else None
+        )
         response_iter = self.client.models.generate_content_stream(
             model=self.model_name,
             contents=contents,
             config=types.GenerateContentConfig(
+                http_options=http_options,
                 system_instruction=system_message,
                 temperature=self.temperature,
                 top_k=self.top_k,
@@ -282,10 +258,16 @@ class ChatGenAI(BaseChatModel):
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
         system_message, contents = self._prepare_request(messages=messages)
+        http_options = (
+            types.HttpOptions(retry_options=self.http_retry_options)
+            if self.http_retry_options
+            else None
+        )
         response_iter = self.client.aio.models.generate_content_stream(
             model=self.model_name,
             contents=contents,
             config=types.GenerateContentConfig(
+                http_options=http_options,
                 system_instruction=system_message,
                 temperature=self.temperature,
                 top_k=self.top_k,
