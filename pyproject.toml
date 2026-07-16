@@ -9,7 +9,6 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "langchain-core>=0.3.60",
-    "tenacity>=9.1.2",
 ]
 
 [dependency-groups]

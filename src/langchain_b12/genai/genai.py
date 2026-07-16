@@ -1,4 +1,3 @@
-import logging
 import os
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from operator import itemgetter
@@ -35,21 +34,12 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import (
     convert_to_openai_tool,
 )
-from pydantic import BaseModel, ConfigDict, Field
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    stop_never,
-    wait_exponential_jitter,
-)
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from langchain_b12.genai.genai_utils import (
     convert_messages_to_contents,
     parse_response_candidate,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class ChatGenAI(BaseChatModel):
@@ -83,8 +73,10 @@ class ChatGenAI(BaseChatModel):
     """How many completions to generate for each prompt."""
     seed: int | None = None
     """Random seed for the generation."""
-    max_retries: int | None = Field(default=3)
-    """Maximum number of retries when generation fails. None retries indefinitely."""
+    max_retries: int = Field(default=3, ge=0)
+    """Maximum number of retries when generation fails."""
+    http_retry_options: types.HttpRetryOptions | None = None
+    """Custom HTTP retry options. Cannot be combined with ``max_retries``."""
     safety_settings: list[types.SafetySetting] | None = None
     """The default safety settings to use for all generations.
 
@@ -106,6 +98,17 @@ class ChatGenAI(BaseChatModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
+
+    @model_validator(mode="after")
+    def _validate_retry_options(self) -> "ChatGenAI":
+        if (
+            self.http_retry_options is not None
+            and "max_retries" in self.model_fields_set
+        ):
+            raise ValueError(
+                "max_retries and http_retry_options cannot both be provided"
+            )
+        return self
 
     @property
     def _llm_type(self) -> str:
@@ -167,6 +170,29 @@ class ChatGenAI(BaseChatModel):
         ), "System message content must be a string or None"
         return system_instruction, cast(types.ContentListUnion, contents)
 
+    def _resolve_http_options(self, kwargs: dict[str, Any]) -> types.HttpOptions:
+        http_options = kwargs.pop("http_options", None)
+        if http_options is not None and not isinstance(http_options, types.HttpOptions):
+            http_options = types.HttpOptions.model_validate(http_options)
+
+        if http_options is not None and http_options.retry_options is not None:
+            if (
+                "max_retries" in self.model_fields_set
+                or self.http_retry_options is not None
+            ):
+                raise ValueError(
+                    "Per-call retry_options cannot be combined with constructor-level "
+                    "max_retries or http_retry_options"
+                )
+            return http_options
+
+        retry_options = self.http_retry_options or types.HttpRetryOptions(
+            attempts=self.max_retries + 1
+        )
+        if http_options is None:
+            return types.HttpOptions(retry_options=retry_options)
+        return http_options.model_copy(update={"retry_options": retry_options})
+
     def get_num_tokens(self, text: str) -> int:
         """Get the number of tokens present in the text."""
         contents = convert_messages_to_contents([HumanMessage(content=text)])
@@ -208,70 +234,28 @@ class ChatGenAI(BaseChatModel):
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
         system_message, contents = self._prepare_request(messages=messages)
-
-        @retry(
-            reraise=True,
-            stop=stop_after_attempt(self.max_retries + 1)
-            if self.max_retries is not None
-            else stop_never,
-            wait=wait_exponential_jitter(initial=1, max=60),
-            retry=retry_if_exception_type(Exception),
-            before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._stream failed to start (attempt %d/%s). "
-                "Retrying in %.2fs... Error: %s",
-                retry_state.attempt_number,
-                self.max_retries + 1 if self.max_retries is not None else "∞",
-                retry_state.next_action.sleep,
-                retry_state.outcome.exception(),
+        http_options = self._resolve_http_options(kwargs)
+        response_iter = self.client.models.generate_content_stream(
+            model=self.model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_message,
+                temperature=self.temperature,
+                top_k=self.top_k,
+                top_p=self.top_p,
+                max_output_tokens=self.max_output_tokens,
+                candidate_count=self.n,
+                stop_sequences=stop or self.stop,
+                safety_settings=self.safety_settings,
+                thinking_config=self.thinking_config,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True,
+                ),
+                http_options=http_options,
+                **kwargs,
             ),
         )
-        def _initiate_stream() -> tuple[
-            ChatGenerationChunk,
-            Iterator[types.GenerateContentResponse],
-            UsageMetadata | None,
-        ]:
-            """Initialize stream and fetch first chunk. Retries only apply here."""
-            response_iter = self.client.models.generate_content_stream(
-                model=self.model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_message,
-                    temperature=self.temperature,
-                    top_k=self.top_k,
-                    top_p=self.top_p,
-                    max_output_tokens=self.max_output_tokens,
-                    candidate_count=self.n,
-                    stop_sequences=stop or self.stop,
-                    safety_settings=self.safety_settings,
-                    thinking_config=self.thinking_config,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        disable=True,
-                    ),
-                    **kwargs,
-                ),
-            )
-            # Fetch first chunk to ensure connection is established
-            # Use try/except to avoid StopIteration being raised inside generator (PEP 479)
-            try:
-                first_response = next(iter(response_iter))
-            except StopIteration as e:
-                raise ValueError(
-                    "No response from model. The stream was empty."
-                ) from e
-            first_chunk, total_usage = self._gemini_chunk_to_generation_chunk(
-                first_response, prev_total_usage=None
-            )
-            return first_chunk, response_iter, total_usage
-
-        # Retry only covers stream initialization and first chunk
-        first_chunk, response_iter, total_lc_usage = _initiate_stream()
-
-        # Yield first chunk
-        if run_manager and isinstance(first_chunk.message.content, str):
-            run_manager.on_llm_new_token(first_chunk.message.content)
-        yield first_chunk
-
-        # Continue streaming without retry (retries during streaming are not well defined)
+        total_lc_usage = None
         for response_chunk in response_iter:
             chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
                 response_chunk, prev_total_usage=total_lc_usage
@@ -288,70 +272,28 @@ class ChatGenAI(BaseChatModel):
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
         system_message, contents = self._prepare_request(messages=messages)
-
-        @retry(
-            reraise=True,
-            stop=stop_after_attempt(self.max_retries + 1)
-            if self.max_retries is not None
-            else stop_never,
-            wait=wait_exponential_jitter(initial=1, max=60),
-            retry=retry_if_exception_type(Exception),
-            before_sleep=lambda retry_state: logger.warning(
-                "ChatGenAI._astream failed to start (attempt %d/%s). "
-                "Retrying in %.2fs... Error: %s",
-                retry_state.attempt_number,
-                self.max_retries + 1 if self.max_retries is not None else "∞",
-                retry_state.next_action.sleep,
-                retry_state.outcome.exception(),
+        http_options = self._resolve_http_options(kwargs)
+        response_iter = await self.client.aio.models.generate_content_stream(
+            model=self.model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_message,
+                temperature=self.temperature,
+                top_k=self.top_k,
+                top_p=self.top_p,
+                max_output_tokens=self.max_output_tokens,
+                candidate_count=self.n,
+                stop_sequences=stop or self.stop,
+                safety_settings=self.safety_settings,
+                thinking_config=self.thinking_config,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True,
+                ),
+                http_options=http_options,
+                **kwargs,
             ),
         )
-        async def _initiate_stream() -> tuple[
-            ChatGenerationChunk,
-            AsyncIterator[types.GenerateContentResponse],
-            UsageMetadata | None,
-        ]:
-            """Initialize stream and fetch first chunk. Retries only apply here."""
-            response_iter = await self.client.aio.models.generate_content_stream(
-                model=self.model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_message,
-                    temperature=self.temperature,
-                    top_k=self.top_k,
-                    top_p=self.top_p,
-                    max_output_tokens=self.max_output_tokens,
-                    candidate_count=self.n,
-                    stop_sequences=stop or self.stop,
-                    safety_settings=self.safety_settings,
-                    thinking_config=self.thinking_config,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        disable=True,
-                    ),
-                    **kwargs,
-                ),
-            )
-            # Fetch first chunk to ensure connection is established
-            # Use try/except to avoid StopAsyncIteration being raised inside generator (PEP 525)
-            try:
-                first_response = await response_iter.__anext__()
-            except StopAsyncIteration as e:
-                raise ValueError(
-                    "No response from model. The stream was empty."
-                ) from e
-            first_chunk, total_usage = self._gemini_chunk_to_generation_chunk(
-                first_response, prev_total_usage=None
-            )
-            return first_chunk, response_iter, total_usage
-
-        # Retry only covers stream initialization and first chunk
-        first_chunk, response_iter, total_lc_usage = await _initiate_stream()
-
-        # Yield first chunk
-        if run_manager and isinstance(first_chunk.message.content, str):
-            await run_manager.on_llm_new_token(first_chunk.message.content)
-        yield first_chunk
-
-        # Continue streaming without retry (retries during streaming are not well defined)
+        total_lc_usage = None
         async for response_chunk in response_iter:
             chunk, total_lc_usage = self._gemini_chunk_to_generation_chunk(
                 response_chunk, prev_total_usage=total_lc_usage
