@@ -15,6 +15,8 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.tool import tool_call_chunk
 
+_THOUGHT_SIGNATURES_KEY = "__thought_signatures__"
+
 
 def multi_content_to_part(
     contents: Sequence[dict[str, str | dict[str, str]] | str],
@@ -163,6 +165,9 @@ def convert_messages_to_contents(
         elif isinstance(message, AIMessage):
             text_parts = convert_base_message_to_parts(message)
             function_parts = []
+            thought_signatures = message.additional_kwargs.get(
+                _THOUGHT_SIGNATURES_KEY, {}
+            )
             if message.tool_calls:
                 # Example of tool_call
                 # tool_call = {
@@ -173,12 +178,18 @@ def convert_messages_to_contents(
                 for tool_call in message.tool_calls:
                     tool_id = tool_call["id"]
                     assert tool_id, "Tool call ID is required"
+                    encoded_signature = thought_signatures.get(tool_id)
                     function_parts.append(
                         types.Part(
                             function_call=types.FunctionCall(
                                 name=tool_call["name"],
                                 args=tool_call["args"],
                                 id=tool_id,
+                            ),
+                            thought_signature=(
+                                base64.b64decode(encoded_signature)
+                                if encoded_signature
+                                else None
                             ),
                         )
                     )
@@ -251,12 +262,27 @@ def parse_response_candidate(response_candidate: types.Candidate) -> AIMessageCh
             function_call["arguments"] = json.dumps(function_call_args_dict)
             additional_kwargs["function_call"] = function_call
 
+            function_call_id = part.function_call.id
+            tool_call_id = (
+                function_call_id
+                if isinstance(function_call_id, str) and function_call_id
+                else str(uuid.uuid4())
+            )
+            thought_signature = part.thought_signature
+            if isinstance(thought_signature, bytes) and thought_signature:
+                thought_signatures = additional_kwargs.setdefault(
+                    _THOUGHT_SIGNATURES_KEY, {}
+                )
+                thought_signatures[tool_call_id] = base64.b64encode(
+                    thought_signature
+                ).decode("ascii")
+
             index = function_call.get("index")
             tool_call_chunks.append(
                 tool_call_chunk(
                     name=function_call.get("name"),
                     args=function_call.get("arguments"),
-                    id=function_call.get("id", str(uuid.uuid4())),
+                    id=tool_call_id,
                     index=int(index) if index else None,
                 )
             )

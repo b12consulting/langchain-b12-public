@@ -1,4 +1,5 @@
 import base64
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -498,6 +499,54 @@ class TestParseResponseCandidate:
 
         assert message.content == "Let me search for that"
         assert "function_call" in message.additional_kwargs
+
+    def test_thought_signatures_round_trip(self):
+        """Test preserving thought signatures across a tool-call round trip."""
+        signatures = {
+            "call_123": b"first opaque signature",
+            "call_456": b"second opaque signature",
+        }
+        candidate = types.Candidate(
+            content=types.Content(
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="search",
+                            args={"query": "first"},
+                            id="call_123",
+                        ),
+                        thought_signature=signatures["call_123"],
+                    ),
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="search",
+                            args={"query": "second"},
+                            id="call_456",
+                        ),
+                        thought_signature=signatures["call_456"],
+                    ),
+                ]
+            )
+        )
+
+        message = parse_response_candidate(candidate)
+
+        assert [chunk["id"] for chunk in message.tool_call_chunks] == [
+            "call_123",
+            "call_456",
+        ]
+        encoded_signatures = message.additional_kwargs["__thought_signatures__"]
+        assert json.loads(json.dumps(encoded_signatures)) == {
+            tool_call_id: base64.b64encode(signature).decode("ascii")
+            for tool_call_id, signature in signatures.items()
+        }
+
+        contents = convert_messages_to_contents([message])
+
+        assert {
+            part.function_call.id: part.thought_signature
+            for part in contents[0].parts
+        } == signatures
 
     def test_none_content_assertion(self):
         """Test assertion when candidate content is None."""
